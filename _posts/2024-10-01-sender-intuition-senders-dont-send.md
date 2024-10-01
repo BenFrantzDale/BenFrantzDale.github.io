@@ -45,7 +45,7 @@ For me, intuition for (1) requires that I understand at least the basics of (2) 
 
 Conceptually a sender is something you can “connect” to a “receiver” and “press start” and know that eventually the receiver you connected will be notified of the result (or get a stopped signal or an error value).
 
-![Not stricktly correct: Conceptually a sender is connected to a reciever allowing you to call `start()`.](conceptually-connected.png)
+![Not stricktly correct: Conceptually a sender is connected to a reciever allowing you to call `start()`.](assets/images/conceptually-connected.png)
 
 When people say “this sender does that and sends its result…”, that’s what they mean, but as we’ll see below, that’s not exactly what happens, and if you are expecting that, you’ll get lost.
 
@@ -69,7 +69,7 @@ OK, so then what is a receiver? A receiver is a callback that, conceptually, a s
 
 So what does connecting do? As a diagram, it’s more like this:
 
-![Calling `connect(sender, receiver)` produces an operation state containing the receiver and exposing a `start()` member function.`](opstate.png)
+![Calling `connect(sender, receiver)` produces an operation state containing the receiver and exposing a `start()` member function.`](assets/images/opstate.png)
 
 But diagrams are handwavy. Let’s look at a very simple example with code. We can make our own receiver that logs the call to `set_value`:  
 ```cpp
@@ -136,7 +136,7 @@ struct ThenReceiver {
 So putting it all together: we started with `then(just(x), f)` which is essentially  
 ```cpp
 ThenSender{.upstream_ = JustSender{x}, .fn_ = f}  
-```cpp
+```
 and when we call `auto opState = connect(then(just(x), f), printing_receiver{});` it evaluates to  
 ```cpp
 auto opState = JustOpState{.val_ = x, .downstream_=  
