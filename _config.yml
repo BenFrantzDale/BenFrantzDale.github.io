@@ -2,8 +2,6 @@
 description: "A blog about software, engineering, and more."
 url: "https://benfrantzdale.github.io"
 baseurl: ""
-theme: minima
+theme: al-folio
 markdown: kramdown
 highlighter: rouge
-    input: GFM
-
