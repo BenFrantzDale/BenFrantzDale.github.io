@@ -5,7 +5,9 @@ date: 2024-10-01 12:00:00 +0000
 categories: blog
 ---
 
-TL;DR: [https://godbolt.org/z/4d7r4Ea8r](https://godbolt.org/z/4d7r4Ea8r)
+TL;DR: They don't send, but conceptually they do.
+
+Code: [https://godbolt.org/z/4d7r4Ea8r](https://godbolt.org/z/4d7r4Ea8r)
 
 
 I’ve been keeping an eye on the [P2300 “Senders” proposal](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p2300r10.html#intro) for generic asynchrony for many years, but felt like I never quite “got” it. 
