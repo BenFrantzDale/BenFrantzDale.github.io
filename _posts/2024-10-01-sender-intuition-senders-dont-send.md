@@ -5,12 +5,12 @@ date: 2024-10-01 12:00:00 +0000
 categories: blog
 ---
 
-> TL;DR: https://godbolt.org/z/4d7r4Ea8r
+TL;DR: [https://godbolt.org/z/4d7r4Ea8r](https://godbolt.org/z/4d7r4Ea8r)
 
 
 I’ve been keeping an eye on the [P2300 “Senders” proposal](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p2300r10.html#intro) for generic asynchrony for many years, but felt like I never quite “got” it. 
 I know I’m not the only one who has found it challenging to grok, 
-leading to questions like "[is `then(f)` a sender–receiver?](https://www.youtube.com/watch?v=nQpXOx0D7I8&t=1390s)" (It's not; see below.) Yet, I could tell a while ago that it showed amazing promise, taking inspiration from Stepanov with the ambitious goal of generically abstracting asynchronous programming with the goal of zero runtime abstraction overhead. The promise is that this will allow us to write code that works equally well for describing asynchronous algorithms on a microcontroller (without allocation or exceptions) as it does for distributing the processing of terabytes of data across a cluster of GPUs or other supercomputers. It’s a lofty goal, but as far as I can tell the goal is being met! Somehow my confusion dissolved on my drive home from the airport after CppCon 2024. Let me share the step-by-step understanding that finally made it click.
+leading to questions like "[is `then(f)` a sender–receiver?](https://www.youtube.com/watch?v=nQpXOx0D7I8&t=1390s)" (It's not; see below.) Yet, I could tell a while ago that it showed amazing promise, taking inspiration from Stepanov with the ambitious goal of generically abstracting asynchronous programming with the goal of zero runtime abstraction overhead. The promise is that this will allow us to write code that works equally well for describing asynchronous algorithms on a microcontroller (without allocation or exceptions) as it does for distributing the processing of terabytes of data across a cluster of GPUs or other supercomputers. It’s a lofty goal, but as far as I can tell the goal is being met! Somehow my confusion dissolved on my drive home from the airport after [CppCon 2024](https://cppcon.org/). Let me share the step-by-step understanding that finally made it click.
 
 ## Background
 
@@ -77,9 +77,10 @@ But diagrams are handwavy. Let’s look at a very simple example with code. We c
 struct printing_receiver {  
     using receiver_concept = ex::receiver_t;  
     void set_value(auto&&... args) noexcept {  
-        fmt::println("set_value{}", std::tie(args…));  
+        fmt::println("set_value{}", std::tie(args...));  
     }  
-    // Could similarly have `void set_stopped() noexcept;` and `void set_error(auto&& e) noexcept;`.  
+    // Could similarly have `void set_stopped() noexcept;` 
+    // and `void set_error(auto&& e) noexcept;`.  
 };  
 ```  
 [https://godbolt.org/z/aWWPTEoqd](https://godbolt.org/z/aWWPTEoqd)  
@@ -124,7 +125,7 @@ struct ThenSender {
     ...
 };  
 ```  
-Note that it encapsulates everything to the *left* in the pipeline (the `just`), so in this case `Upstream` is `JustSender<int>`, so it’s basically `ThenSender{.upstream_ = JustSender{x}, .fn_ = f}`. 
+Note that it encapsulates everything to the *left* in the pipeline (the `just`), so in this case `Upstream` is `JustSender<int>`, so it’s basically `ThenSender{.upstream = JustSender{x}, .fn = f}`. 
 
 Let's look at `connect`: Basically it **turns nested nested sender-adapter "onion" inside out**.
 The recursive call to `ex::connect(this->upstream, ...)` will produce `upstream`'s operation state wrapped around `ThisReceiver` with `downstream` inside.
@@ -230,7 +231,7 @@ If there’s enough interest, I’d consider digging into these or other topics 
 ## Conclusion
 There's a lot of machinery in Senders, but at its core, it's solving a very hard problem. Could it be simpler? Maybe?
 But I think we primarily need more documentation of the the details so we can all have an intuition for what code-gen will result from composed sender algorithms.
-See https://godbolt.org/z/4d7r4Ea8r to explore for yourself.
+See [https://godbolt.org/z/4d7r4Ea8r](https://godbolt.org/z/4d7r4Ea8r) to explore for yourself.
 
 
 Thanks to the following people:

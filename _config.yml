@@ -3,6 +3,8 @@ description: "A blog about software, engineering, and more."
 url: "https://benfrantzdale.github.io"
 baseurl: ""
 
+sass:
+  style: compressed
 
 author:
   name: "Ben FrantzDale"
