@@ -15,7 +15,7 @@ leading to questions like "[is `then(f)` a sender–receiver?](https://www.youtu
 ## Background
 
 P2300 describes asynchronous work as “senders” – things which do some work (or none at all) and “send” the answer (or non-answer or stopped signal or an error) on to another stage, ensuring that the resources needed for that stage are kept alive for its duration, and making all data transfer explicit, avoiding raw synchronization primitives. This provides a C++ API – arguably a domain-specific language – that lets us write code like this:  
-```  
+```cpp  
 auto result = sync_wait(  
     when_all(schedule(sch) | then(f),  
              schedule(sch) | then(g))  
@@ -24,11 +24,11 @@ auto result = sync_wait(
 To compute `f` on and `g` potentially in parallel, without even allocating memory!
 
 But what is the computer actually doing? As a C++ programmer, I want intuition for what’s going on behind the abstraction! By that I mean like when I see   
-```  
+```cpp
 auto x = std::vector{1, 2, 3};  
-```  
+```
 in my head I can picture   
-```  
+```cpp
 auto __ptr = new int[]{1, 2, 3};   
 auto x = Vec<int>{.data_ = __ptr, .end_ = __ptr + 3, .cap_ = __ptr + 3};  
 // ...  

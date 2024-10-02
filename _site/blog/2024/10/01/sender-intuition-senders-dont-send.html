@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en-us">
+
+<link rel="stylesheet" href="/public/css/poole.css">
+<link rel="stylesheet" href="/public/css/hyde.css">
+<link rel="stylesheet" href="/public/css/syntax.css">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Sender Intuition: Senders Don't Send &middot; Ben FrantzDale's Blog
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="public/css/poole.css">
+  <link rel="stylesheet" href="public/css/syntax.css">
+  <link rel="stylesheet" href="public/css/hyde.css">
+  <link rel="stylesheet" href="http://fonts.googleapis.com/css?family=PT+Sans:400,400italic,700|Abril+Fatface">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="public/apple-touch-icon-144-precomposed.png">
+                                 <link rel="shortcut icon" href="public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+</head>
+
+
+  <body>
+
+    <div class="sidebar">
+  <div class="container sidebar-sticky">
+    <div class="sidebar-about">
+      <h1>
+        <a href="">
+          Ben FrantzDale's Blog
+        </a>
+      </h1>
+      <p class="lead">A blog about software, engineering, and more.</p>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a class="sidebar-nav-item" href="">Home</a>
+
+      
+
+      
+      
+        
+      
+        
+          
+            <a class="sidebar-nav-item" href="/about/">About</a>
+          
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+      <a class="sidebar-nav-item" href="https://linkedin.com/in/benfrantzdale">LinkedIn</a> (I'm available!)
+      <!--a class="sidebar-nav-item" href="/archive/v.zip">Download</a-->
+      <!--a class="sidebar-nav-item" href="">GitHub project</a-->
+      <!--span class="sidebar-nav-item">Currently v</span -->
+    </nav>
+
+    <p>&copy; 2024. All rights reserved.</p>
+  </div>
+</div>
+
+
+    <div class="content container">
+      <div class="post">
+  <h1 class="post-title">Sender Intuition: Senders Don't Send</h1>
+  <span class="post-date">01 Oct 2024</span>
+  <p>TL;DR: <a href="https://godbolt.org/z/4d7r4Ea8r">https://godbolt.org/z/4d7r4Ea8r</a></p>
+
+<p>I’ve been keeping an eye on the <a href="https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p2300r10.html#intro">P2300 “Senders” proposal</a> for generic asynchrony for many years, but felt like I never quite “got” it. 
+I know I’m not the only one who has found it challenging to grok, 
+leading to questions like “<a href="https://www.youtube.com/watch?v=nQpXOx0D7I8&amp;t=1390s">is <code class="language-plaintext highlighter-rouge">then(f)</code> a sender–receiver?</a>” (It’s not; see below.) Yet, I could tell a while ago that it showed amazing promise, taking inspiration from Stepanov with the ambitious goal of generically abstracting asynchronous programming with the goal of zero runtime abstraction overhead. The promise is that this will allow us to write code that works equally well for describing asynchronous algorithms on a microcontroller (without allocation or exceptions) as it does for distributing the processing of terabytes of data across a cluster of GPUs or other supercomputers. It’s a lofty goal, but as far as I can tell the goal is being met! Somehow my confusion dissolved on my drive home from the airport after <a href="https://cppcon.org/">CppCon 2024</a>. Let me share the step-by-step understanding that finally made it click.</p>
+
+<h2 id="background">Background</h2>
+
+<p>P2300 describes asynchronous work as “senders” – things which do some work (or none at all) and “send” the answer (or non-answer or stopped signal or an error) on to another stage, ensuring that the resources needed for that stage are kept alive for its duration, and making all data transfer explicit, avoiding raw synchronization primitives. This provides a C++ API – arguably a domain-specific language – that lets us write code like this:</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">auto</span> <span class="n">result</span> <span class="o">=</span> <span class="n">sync_wait</span><span class="p">(</span>  
+    <span class="n">when_all</span><span class="p">(</span><span class="n">schedule</span><span class="p">(</span><span class="n">sch</span><span class="p">)</span> <span class="o">|</span> <span class="n">then</span><span class="p">(</span><span class="n">f</span><span class="p">),</span>  
+             <span class="n">schedule</span><span class="p">(</span><span class="n">sch</span><span class="p">)</span> <span class="o">|</span> <span class="n">then</span><span class="p">(</span><span class="n">g</span><span class="p">))</span>  
+<span class="p">).</span><span class="n">value</span><span class="p">();</span>  
+</code></pre></div></div>
+<p>To compute <code class="language-plaintext highlighter-rouge">f</code> on and <code class="language-plaintext highlighter-rouge">g</code> potentially in parallel, without even allocating memory!</p>
+
+<p>But what is the computer actually doing? As a C++ programmer, I want intuition for what’s going on behind the abstraction! By that I mean like when I see</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">auto</span> <span class="n">x</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="p">{</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">};</span>  
+</code></pre></div></div>
+<p>in my head I can picture</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">auto</span> <span class="n">__ptr</span> <span class="o">=</span> <span class="k">new</span> <span class="kt">int</span><span class="p">[]{</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">};</span>   
+<span class="k">auto</span> <span class="n">x</span> <span class="o">=</span> <span class="n">Vec</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="p">{.</span><span class="n">data_</span> <span class="o">=</span> <span class="n">__ptr</span><span class="p">,</span> <span class="p">.</span><span class="n">end_</span> <span class="o">=</span> <span class="n">__ptr</span> <span class="o">+</span> <span class="mi">3</span><span class="p">,</span> <span class="p">.</span><span class="n">cap_</span> <span class="o">=</span> <span class="n">__ptr</span> <span class="o">+</span> <span class="mi">3</span><span class="p">};</span>  
+<span class="c1">// ...  </span>
+<span class="k">delete</span> <span class="n">x</span><span class="p">.</span><span class="n">data_</span><span class="p">;</span> <span class="c1">//&lt; RAII: We won’t leak!  </span>
+</code></pre></div></div>
+<p>To me the beauty of C++ is the ability to have those zero-cost abstractions, allowing for clean code where I can still reason about the underlying details. I want a similar level of intuition when looking at Senders code.</p>
+
+<p>Because it has a multitude of design goals, the Senders design has a lot of pieces to it. I want to focus on two parts:</p>
+
+<ol>
+  <li>A domain-specific language for describing asynchronous operations using expression templates.</li>
+  <li>A customizable system for dispatching asynchronous work.</li>
+</ol>
+
+<p>For me, intuition for (1) requires that I understand at least the basics of (2) so that I know approximately how the asynchronous code will actually be executed. But if you step into implementations, you quickly find yourself in a sea of underscores, namespaces, and customization-point objects. There are good reasons for all of these things, but they hindered my understanding.</p>
+
+<p>Conceptually a sender is something you can “connect” to a “receiver” and “press start” and know that eventually the receiver you connected will be notified of the result (or get a stopped signal or an error value).</p>
+
+<p><img src="/assets/images/conceptually-connected.png" alt="Not stricktly correct: Conceptually a sender is connected to a reciever allowing you to call `start()`." /></p>
+
+<p>When people say “this sender does that and sends its result…”, that’s what they mean, but as we’ll see below, that’s not exactly what happens, and if you are expecting that, you’ll get lost.</p>
+
+<p>So what’s really going on? Let’s consider some expressions you’ll see in Senders code:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">just()</code> is the simplest sender: It represents doing nothing and “sending” nothing onward. (A “value completion signature of <code class="language-plaintext highlighter-rouge">()</code>”.)</li>
+  <li><code class="language-plaintext highlighter-rouge">just(42)</code> is similar: it’s a sender that completes with the integer 42.</li>
+  <li><code class="language-plaintext highlighter-rouge">then(just(), f)</code> is a sender. It represents calling <code class="language-plaintext highlighter-rouge">f()</code> and sending the result onward.</li>
+  <li><code class="language-plaintext highlighter-rouge">then(f)</code> is <em>not</em> a sender – it’s an adapter (a “sender adapter closure” if you want to be precise) that, with another sender piped in from the left, produces a sender. The existence of the type that is <code class="language-plaintext highlighter-rouge">then(f)</code> is really just to permit the pipe syntax.</li>
+  <li><code class="language-plaintext highlighter-rouge">just() | then(f)</code> is a sender, equivalent to <code class="language-plaintext highlighter-rouge">then(just(), f)</code>, but providing left-to-right reading for sanity.</li>
+  <li><code class="language-plaintext highlighter-rouge">continues_on(sch)</code> is not a sender. It is another sender adapter.</li>
+  <li><code class="language-plaintext highlighter-rouge">continues_on(snd, sch)</code> (equivalently <code class="language-plaintext highlighter-rouge">snd | continues_on(sch)</code>) is a sender. It represents doing the work of <code class="language-plaintext highlighter-rouge">snd</code> then transferring the result data to <code class="language-plaintext highlighter-rouge">sch</code> and any future work after that will be scheduled on <code class="language-plaintext highlighter-rouge">sch</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">just(1) | then(f) | then(g)</code> (equivalently: <code class="language-plaintext highlighter-rouge">then(then(just(1), f), g)</code>) is a sender. It is a nested structure that sends the value of <code class="language-plaintext highlighter-rouge">g(f(1))</code> onward.</li>
+  <li><code class="language-plaintext highlighter-rouge">schedule(sch)</code> is a sender that represents starting work with a particular scheduler – we’ll revisit this later.</li>
+</ul>
+
+<p>So, what can you do with senders? I heard they send things and connect to things. I’ve heard about receivers. Are some senders also receivers? Certainly that must be the case, right? (I had thought <code class="language-plaintext highlighter-rouge">then(f)</code> was somehow a sender and a receiver.) We are making a pipeline of senders, right? (We are not.) Senders get connected to receivers? (Yes and no.)</p>
+
+<blockquote>
+  <p>The one thing you can do with a sender is call <code class="language-plaintext highlighter-rouge">connect(snd, rec)</code>. That’s it.</p>
+</blockquote>
+
+<p>OK, so then what is a receiver? A receiver is a callback that, conceptually, a sender can send to. We take one sender (which can represent a whole chain of work), and plug it into a receiver, producing an object that’s ready to run – where we can call <code class="language-plaintext highlighter-rouge">start()</code> and know that eventually the receiver will receive the result (or a stop or error signal). But here’s the rub: While we might say “you connect a sender to a receiver”, that’s not precisely true. At least not in the same sense that in an object-oriented framework you might connect an object to a callback, modifying the source object. Remember, we want to be able to avoid allocation, and these are value types assembled as expression templates, so we don’t mutate the senders (i.e., <strong>you will never find a sender that is connected to a receiver</strong>), instead, connection produces a new object: an operation state. Typically this will have a copy of the receiver in it, but in general it won’t include the sender that was passed to <code class="language-plaintext highlighter-rouge">connect</code>. If this feels like a lot of indirection without getting to the “do parallel work” part, keep in mind that this design needs to admit basically all asynchrony, and so there are reasons for these layers. My goal here is just to clarify what the layers are.</p>
+
+<p>So what does connecting do? As a diagram, it’s more like this:</p>
+
+<p><img src="/assets/images/opstate.png" alt="Calling `connect(sender, receiver)` produces an operation state containing the receiver and exposing a `start()` member function.`" /></p>
+
+<p>But diagrams are handwavy. Let’s look at a very simple example with code. We can make our own receiver that logs the call to <code class="language-plaintext highlighter-rouge">set_value</code>:</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">//! A receiver that accepts the value channel and prints it.  </span>
+<span class="k">struct</span> <span class="nc">printing_receiver</span> <span class="p">{</span>  
+    <span class="k">using</span> <span class="n">receiver_concept</span> <span class="o">=</span> <span class="n">ex</span><span class="o">::</span><span class="n">receiver_t</span><span class="p">;</span>  
+    <span class="kt">void</span> <span class="n">set_value</span><span class="p">(</span><span class="k">auto</span><span class="o">&amp;&amp;</span><span class="p">...</span> <span class="n">args</span><span class="p">)</span> <span class="k">noexcept</span> <span class="p">{</span>  
+        <span class="n">fmt</span><span class="o">::</span><span class="n">println</span><span class="p">(</span><span class="s">"set_value{}"</span><span class="p">,</span> <span class="n">std</span><span class="o">::</span><span class="n">tie</span><span class="p">(</span><span class="n">args</span><span class="p">...));</span>  
+    <span class="p">}</span>  
+    <span class="c1">// Could similarly have `void set_stopped() noexcept;` </span>
+    <span class="c1">// and `void set_error(auto&amp;&amp; e) noexcept;`.  </span>
+<span class="p">};</span>  
+</code></pre></div></div>
+<p><a href="https://godbolt.org/z/aWWPTEoqd">https://godbolt.org/z/aWWPTEoqd</a><br />
+Writing <code class="language-plaintext highlighter-rouge">connect(ex::just("foo"), printing_receiver{}).start()</code> is a very round-about (and dicy) way to write <code class="language-plaintext highlighter-rouge">fmt::println("set_value{}", std::tuple(“foo”));</code>, but it’s illustrative: A receiver is a simple thing: it’s the end of these pipelines. As it turns out, they do more than that, some of which we’ll see below.</p>
+
+<p>So what happens? Where does the result of <code class="language-plaintext highlighter-rouge">connect</code> come from? The <code class="language-plaintext highlighter-rouge">connect</code> customization–point object is customizable for any sender and receiver, but here it’s <code class="language-plaintext highlighter-rouge">just(x)</code> that provided it: <code class="language-plaintext highlighter-rouge">just(x)</code> is a sender – it doesn’t have a corresponding receiver type, but it does have an operation state that conceptually is</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">//! Operation state for unary `just(x)`.</span>
+<span class="c1">//! Starting it calls set_value on the downstream receiver.</span>
+<span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="nc">T</span><span class="p">,</span> <span class="n">ex</span><span class="o">::</span><span class="n">receiver</span> <span class="n">Downstream</span><span class="p">&gt;</span>
+<span class="k">struct</span> <span class="nc">JustOpState</span> <span class="p">{</span>
+    <span class="n">T</span> <span class="n">x</span><span class="p">;</span>
+    <span class="n">Downstream</span> <span class="n">downstream</span><span class="p">;</span>
+    <span class="kt">void</span> <span class="n">start</span><span class="p">()</span> <span class="k">noexcept</span> <span class="p">{</span> <span class="n">ex</span><span class="o">::</span><span class="n">set_value</span><span class="p">(</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">downstream</span><span class="p">,</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">x</span><span class="p">);</span> <span class="p">}</span>
+<span class="p">};</span>
+</code></pre></div></div>
+<p>Where <code class="language-plaintext highlighter-rouge">connect</code> is customized so that <code class="language-plaintext highlighter-rouge">auto opState = connect(just(42), printing_receiver{});</code> turns into</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">auto</span> <span class="n">opState</span> <span class="o">=</span> <span class="n">JustOpState</span><span class="p">{.</span><span class="n">x</span> <span class="o">=</span> <span class="mi">123</span><span class="p">,</span> <span class="p">.</span><span class="n">downstream</span> <span class="o">=</span> <span class="n">printing_receiver</span><span class="p">{}};</span>  
+</code></pre></div></div>
+<p>And then <code class="language-plaintext highlighter-rouge">opState.start()</code> just calls <code class="language-plaintext highlighter-rouge">downstream_.set_value(123)</code> on the <code class="language-plaintext highlighter-rouge">printing_receiver</code>.<br />
+Notice that there are no senders left after <code class="language-plaintext highlighter-rouge">opState</code> has been constructed: the temporary that is the result of <code class="language-plaintext highlighter-rouge">just(42)</code> is gone. While you will hear people say we “connect a sender to a receiver” – and at a high level that’s true – we actually created an operation state corresponding to that sender connected to that receiver.</p>
+
+<p>Let’s build on that: <code class="language-plaintext highlighter-rouge">just(x) | then(f)</code> (equivalently <code class="language-plaintext highlighter-rouge">then(just(x), f)</code>) is a sender that we say “completes” with a value of <code class="language-plaintext highlighter-rouge">decltype(f(x))</code>. (Again, strictly speaking <em>it</em> doesn’t complete: it gets transformed into something else that ultimately calls <code class="language-plaintext highlighter-rouge">set_value</code> on the receiver we called <code class="language-plaintext highlighter-rouge">connect</code> with it.) The expression <code class="language-plaintext highlighter-rouge">then(just(x), f)</code>, is a sender. Looking at the right end of the pipeline it’s a <code class="language-plaintext highlighter-rouge">then</code> sender (that is, a sender produced by the <code class="language-plaintext highlighter-rouge">then</code> adapter). That sender itself contains (a copy of) the <code class="language-plaintext highlighter-rouge">just(x)</code> sender). What happens when we connect it? Well, a then sender needs an operation state for connecting it to a receiver. Here’s what a then sender looks like:</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">//! Sender for the `then` adapter.</span>
+<span class="c1">//! Wraps an upstream sender with a function call.</span>
+<span class="k">template</span> <span class="o">&lt;</span><span class="n">stdexec</span><span class="o">::</span><span class="n">sender</span> <span class="n">Upstream</span><span class="p">,</span> <span class="k">typename</span> <span class="nc">Fn</span><span class="p">&gt;</span>
+<span class="k">struct</span> <span class="nc">ThenSender</span> <span class="p">{</span>
+    <span class="c1">// Explicit concept opt-in:</span>
+    <span class="k">using</span> <span class="n">sender_concept</span> <span class="o">=</span> <span class="n">ex</span><span class="o">::</span><span class="n">sender_t</span><span class="p">;</span>
+    <span class="n">Upstream</span> <span class="n">upstream</span><span class="p">;</span>
+    <span class="n">Fn</span> <span class="n">fn</span><span class="p">;</span>
+
+    <span class="k">auto</span> <span class="n">connect</span><span class="p">(</span><span class="n">ex</span><span class="o">::</span><span class="n">receiver</span> <span class="k">auto</span> <span class="n">downstream</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="n">ex</span><span class="o">::</span><span class="n">connect</span><span class="p">(</span>
+            <span class="k">this</span><span class="o">-&gt;</span><span class="n">upstream</span><span class="p">,</span> 
+            <span class="n">ThenReceiver</span><span class="p">{.</span><span class="n">downstream</span> <span class="o">=</span> <span class="n">downstream</span><span class="p">,</span> <span class="p">.</span><span class="n">fn</span> <span class="o">=</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">fn</span><span class="p">}</span>
+        <span class="p">);</span>
+    <span class="p">}</span>
+    
+    <span class="p">...</span>
+<span class="p">};</span>  
+</code></pre></div></div>
+<p>Note that it encapsulates everything to the <em>left</em> in the pipeline (the <code class="language-plaintext highlighter-rouge">just</code>), so in this case <code class="language-plaintext highlighter-rouge">Upstream</code> is <code class="language-plaintext highlighter-rouge">JustSender&lt;int&gt;</code>, so it’s basically <code class="language-plaintext highlighter-rouge">ThenSender{.upstream = JustSender{x}, .fn = f}</code>.</p>
+
+<p>Let’s look at <code class="language-plaintext highlighter-rouge">connect</code>: Basically it <strong>turns nested nested sender-adapter “onion” inside out</strong>.
+The recursive call to <code class="language-plaintext highlighter-rouge">ex::connect(this-&gt;upstream, ...)</code> will produce <code class="language-plaintext highlighter-rouge">upstream</code>’s operation state wrapped around <code class="language-plaintext highlighter-rouge">ThisReceiver</code> with <code class="language-plaintext highlighter-rouge">downstream</code> inside.
+So in the case of <code class="language-plaintext highlighter-rouge">then(just(x), f)</code>, calling <code class="language-plaintext highlighter-rouge">connect</code> returns the result of connecting <code class="language-plaintext highlighter-rouge">just(x)</code> to a <code class="language-plaintext highlighter-rouge">ThenReceiver</code>. So what’s that?</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">//! A receiver for the `then` sender adapter.</span>
+<span class="c1">//! Wraps a downstream receiver with a function call.</span>
+<span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="nc">Fn</span><span class="p">,</span> <span class="n">ex</span><span class="o">::</span><span class="n">receiver</span> <span class="n">Downstream</span><span class="p">&gt;</span>
+<span class="k">struct</span> <span class="nc">ThenReceiver</span> <span class="p">{</span>
+    <span class="c1">// Explicit concept opt-in:</span>
+    <span class="k">using</span> <span class="n">receiver_concept</span> <span class="o">=</span> <span class="n">ex</span><span class="o">::</span><span class="n">receiver_t</span><span class="p">;</span>
+
+    <span class="n">Fn</span> <span class="n">fn</span><span class="p">;</span>
+    <span class="n">Downstream</span> <span class="n">downstream</span><span class="p">;</span>
+
+    <span class="kt">void</span> <span class="n">set_value</span><span class="p">(</span><span class="k">auto</span> <span class="n">x</span><span class="p">)</span> <span class="k">noexcept</span> <span class="p">{</span> <span class="n">ex</span><span class="o">::</span><span class="n">set_value</span><span class="p">(</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">downstream</span><span class="p">,</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">fn</span><span class="p">(</span><span class="n">x</span><span class="p">));</span> <span class="p">}</span>
+<span class="p">};</span>
+</code></pre></div></div>
+<p>So putting it all together: we started with <code class="language-plaintext highlighter-rouge">then(just(x), f)</code> which is essentially</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">ThenSender</span><span class="p">{.</span><span class="n">upstream</span> <span class="o">=</span> <span class="n">JustSender</span><span class="p">{</span><span class="n">x</span><span class="p">},</span> <span class="p">.</span><span class="n">fn</span> <span class="o">=</span> <span class="n">f</span><span class="p">}</span>  
+</code></pre></div></div>
+<p>and when we call <code class="language-plaintext highlighter-rouge">auto opState = connect(then(just(x), f), printing_receiver{});</code> it evaluates to</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">auto</span> <span class="n">opState</span> <span class="o">=</span> <span class="n">JustOpState</span><span class="p">{</span>
+    <span class="p">.</span><span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="p">,</span> 
+    <span class="p">.</span><span class="n">downstream</span> <span class="o">=</span>  
+        <span class="n">ThenReceiver</span><span class="p">{.</span><span class="n">fn</span> <span class="o">=</span> <span class="n">f</span><span class="p">,</span> <span class="p">.</span><span class="n">downstream</span> <span class="o">=</span> <span class="n">printing_receiver</span><span class="p">{}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+</code></pre></div></div>
+<p>Let’s review what happened here:</p>
+
+<ol>
+  <li><code class="language-plaintext highlighter-rouge">opState</code> has no senders in it.</li>
+  <li>There is only one operation state (<code class="language-plaintext highlighter-rouge">JustOpState</code>), corresponding to the “start” of the sender pipeline – to “starting” <code class="language-plaintext highlighter-rouge">then(just(x), f)</code>.</li>
+  <li>The nested sender-adapter “onion” has been turned inside-out, putting the final receiver at the inside, and the “just” part on the outside.</li>
+  <li>The sender adapter <code class="language-plaintext highlighter-rouge">then(f)</code> first transformed into a sender (<code class="language-plaintext highlighter-rouge">then(just(x), f)</code>), but ultimately, since it’s an adapter, it gets represented by a receiver. There is no operation state corresponding to <code class="language-plaintext highlighter-rouge">then(f)</code>, just for <code class="language-plaintext highlighter-rouge">then(just(x), f)</code> – and that one is a “just” operation state (containing a “then” receiver containing the final receiver).</li>
+  <li><code class="language-plaintext highlighter-rouge">just</code> doesn’t have a corresponding receiver – it starts a chain of senders and so has an associated operation state but no receiver.</li>
+  <li>Both <code class="language-plaintext highlighter-rouge">ThenReceiver</code> and <code class="language-plaintext highlighter-rouge">JustOpState</code> could easily have access to <code class="language-plaintext highlighter-rouge">printing_receiver</code>, so with some additional API it’s not hard to imagine that they could read information out of it, like if it wanted to provide a <code class="language-plaintext highlighter-rouge">stop_token</code>. This was not true of the sender passed to <code class="language-plaintext highlighter-rouge">connect</code>. This seems to be a key to the design: by going from a sender (possibly composed of adaptors around other senders) to an operation state where the nesting is inverted, the design separates composition from the runtime details that the ultimate receiver can provide.</li>
+</ol>
+
+<h2 id="scheduling">Scheduling</h2>
+
+<p>The above is just a long way to compose functions (as Sean Parent points out in his NYC++ talk linked above). Let’s distribute the work. There’s a sender factory function, <code class="language-plaintext highlighter-rouge">schedule</code> such that <code class="language-plaintext highlighter-rouge">schedule(sch)</code> is a sender that we might say “completes with no values on a given execution resource”. What does that mean, intuitively? It’s very similar to <code class="language-plaintext highlighter-rouge">just()</code> except it has to hold the resource. The sender is simple:</p>
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">template</span> <span class="o">&lt;</span><span class="n">ex</span><span class="o">::</span><span class="n">scheduler</span> <span class="n">Sch</span><span class="p">&gt;</span>  
+<span class="k">struct</span> <span class="nc">ScheduleSender</span> <span class="p">{</span>  
+    <span class="n">Sch</span> <span class="n">scheduler</span><span class="p">;</span>  
+<span class="p">};</span>
+
+<span class="c1">//! Operation state for scheduling:  </span>
+<span class="k">template</span> <span class="o">&lt;</span><span class="n">ex</span><span class="o">::</span><span class="n">receiver</span> <span class="n">Downstream</span><span class="p">&gt;</span>  
+<span class="k">struct</span> <span class="nc">MyPoolSchedulerOpState</span> <span class="p">{</span>  
+    <span class="n">MyPoolScheduler</span> <span class="n">sch</span><span class="p">;</span>  
+    <span class="n">Downstream</span> <span class="n">downstream</span><span class="p">;</span>  
+    <span class="kt">void</span> <span class="n">start</span><span class="p">()</span> <span class="p">{</span>  
+        <span class="n">sch</span><span class="p">.</span><span class="n">getResource</span><span class="p">().</span><span class="n">enqueue</span><span class="p">([</span><span class="o">&amp;</span><span class="p">]</span> <span class="p">{</span> <span class="n">downstream_</span><span class="p">.</span><span class="n">set_value</span><span class="p">();</span> <span class="p">});</span>  
+    <span class="p">}</span>  
+<span class="p">};</span>
+
+<span class="k">auto</span> <span class="n">connect</span><span class="p">(</span><span class="n">ScheduleSender</span><span class="o">&lt;</span><span class="n">MyPoolScheduler</span><span class="o">&gt;</span> <span class="n">snd</span><span class="p">,</span> <span class="n">ex</span><span class="o">::</span><span class="n">receiver</span> <span class="k">auto</span> <span class="n">downstream</span><span class="p">)</span> <span class="p">{</span>  
+    <span class="k">return</span> <span class="n">MyPoolSchedulerOpState</span><span class="p">{</span><span class="n">snd</span><span class="p">.</span><span class="n">sch</span><span class="p">,</span> <span class="n">downstream</span><span class="p">};</span>  
+<span class="p">}</span>  
+</code></pre></div></div>
+<p>So when connected, we get a <code class="language-plaintext highlighter-rouge">MyPoolSchedulerOpState&lt;...&gt;</code>, and when started, the calling thread executes <code class="language-plaintext highlighter-rouge">sch_.getResource().enqueue([&amp;] { downstream_.set_value(); });</code> and immediately returns, causing the thread pool to wake up and eventually <code class="language-plaintext highlighter-rouge">call downstream_.set_value();</code>. In contrast, I’ve heard talks say things like “When the <code class="language-plaintext highlighter-rouge">schedule(sch)</code> sender starts, it’s going to start on a thread in that thread pool.” That’s conceptually correct a very high level, but that language can trip people up: objects that model the <code class="language-plaintext highlighter-rouge">std::execution::sender</code> concept don’t ever actually start, and in as much as they do, they start on the thread that called <code class="language-plaintext highlighter-rouge">opState.start()</code>.</p>
+
+<p>I want to highlight two things here:</p>
+
+<ol>
+  <li>The lifetime of the operation state is managed by the caller of <code class="language-plaintext highlighter-rouge">start()</code> – that caller had better have some way of knowing when it’s OK to destroy the operation state! For this reason, library code typically hides the receivers and the call to <code class="language-plaintext highlighter-rouge">start()</code>, and the final receiver likely has a condition variable or some similar way to indicate that the chain has completed.</li>
+  <li>This <code class="language-plaintext highlighter-rouge">enqueue</code> as written here may have to allocate in some way. However, <code class="language-plaintext highlighter-rouge">MyPoolSchedulerOpState</code> is specialized for the execution resource, so the operation state could hold the node of a linked list of work to do.</li>
+</ol>
+
+<h2 id="recap">Recap</h2>
+
+<p>We’ve just walked through simple pipelines and scheduling in excruciating detail. I hope this starts to give you some intuition for what Senders code is doing at asynchronous execution time.<br />
+Stated explicitly:</p>
+
+<ol>
+  <li>Senders don’t send. Conceptually, they represent the idea of doing some work and transferring data and control flow to a receiver, but strictly speaking, they are placeholder objects that contain just enough information to describe the work they need to do. I’m sure I’ll start to describe them as sending, but that’s shorthand for “when connected to a receiver, they correspond to all or part of an operation state that sends to a receiver”.</li>
+  <li>Pipelines of senders with sender adapters are left-associative (it’s <code class="language-plaintext highlighter-rouge">operator|</code> after all), meaning it’s a layered object with the “source” sender at the core and the sender created by the rightmost sender-adapter (i.e., the combined sender for the whole pipeline) on the outside: <code class="language-plaintext highlighter-rouge">(just(x) | then(f)) | then(g)</code>.</li>
+  <li>Like Eigen and C++20 range adapters, all of this stuff is based around the idea of expression templates. This makes room for a ton of compiler optimization.</li>
+  <li>“Connecting” a sender to a receiver doesn’t produce a connected sender-receiver. It produces an operation state, which is conceptually the connected sener-receiver pair, but is a different type. In addition, this operation state is a core of this design because it outlives its operation, so it’s a non-allocating place to store information needed for that operation. This is part of what is meant by “structured concurrency”.</li>
+  <li>Calling <code class="language-plaintext highlighter-rouge">connect</code> turns the nesting inside-out, leaving nested receivers with the ultimate sink at the core, but where the “skin” of the onion is the operation state for the initial sender (e.g., for <code class="language-plaintext highlighter-rouge">just()</code> or for <code class="language-plaintext highlighter-rouge">schedule(sch)</code>). After calling <code class="language-plaintext highlighter-rouge">connect</code>, we are done with the sender we passed in. It doesn’t need to still be alive when <code class="language-plaintext highlighter-rouge">start()</code> is called.</li>
+  <li>An operation state object is opaque, immovable, and conceptually has just one “button” on it you can “press”: <code class="language-plaintext highlighter-rouge">start()</code>. If you press it, it’s your job to ensure its lifetime extends beyond completion.</li>
+</ol>
+
+<h2 id="applying-intuition-when_all">Applying Intuition: <code class="language-plaintext highlighter-rouge">when_all</code></h2>
+
+<p>The above gives the basic intuition for what <code class="language-plaintext highlighter-rouge">schedule(sch) | then(f) | then(g)</code> means and how, given a receiver, it would be transformed into an operation state that includes a receiver “onion”. For me, once I understood these things, the intuition for the other senders feels pretty accessible. As a quick example, consider <code class="language-plaintext highlighter-rouge">when_all</code>, which takes senders and sends their combined results as a tuple, doing reasonable things about cancelation and errors. Since <code class="language-plaintext highlighter-rouge">when_all(s0, s1)</code> is a sender (not an adapter) so it doesn’t have a corresponding receiver, but it needs an operation state. The senders we pass in must complete, so <code class="language-plaintext highlighter-rouge">when_all</code>’s must provide receivers for each of the two senders, and a place to store each result, and <code class="language-plaintext highlighter-rouge">when_all</code>, once <code class="language-plaintext highlighter-rouge">connect</code>ed will produce an and operation state that includes the operation state <code class="language-plaintext highlighter-rouge">s0</code> and <code class="language-plaintext highlighter-rouge">s1</code> connected to those internal receivers. It also needs a stop source (which can be a <code class="language-plaintext highlighter-rouge">std::inplace_stop_source</code> since the operation state provides a safe non-heap place to put such resources!) so if any of the included senders stops, no further senders are started, and probably an atomic counter so the last thread out can send the results onward. That’s a bit of handwaving, but now I can at least imagine it.</p>
+
+<h2 id="further-intuition">Further Intuition</h2>
+
+<p>There a bunch more questions I haven’t yet explored in depth, but could be their own articles:</p>
+
+<ul>
+  <li>What happens at the end of <code class="language-plaintext highlighter-rouge">when_all(schedule(sch) | then(f), schedule(sch) | then(g))</code>? A thread from <code class="language-plaintext highlighter-rouge">sch</code> must realize it’s the “last one out”. Then what?<br />
+“Why all of these abstraction layers?” One inkling: By transforming a sender chain to a receiver chain at the point of connection to the final receiver, there are customization points to allow information to travel in both directions through the chan, so what started life as <code class="language-plaintext highlighter-rouge">just()</code> turns into something that knows what execution resource it is running on, if it needs to report cancelation, etc.</li>
+  <li>“What’s this <code class="language-plaintext highlighter-rouge">let_value</code> thing for?” It lets you put off creating a sender until mid-execution, which is useful for various reasons.</li>
+  <li>“How does cancelation work?” I haven’t talked about the error or stopped channels, but an interesting aspect of P2300’s design, where then “sender onion” gets turned inside out into a “receiver onion” is that it lets the “receiver onion” look inside itself to ask if cancellation is even possible, removing potential overhead.</li>
+  <li>“What’s an environment? Why would I query it?” For example, it lets you know if you need to worry about cancelation.</li>
+  <li>“Why is everything a customization point?” Well, for moving to a GPU you need to actually move data around. The goal here is to decouple the description of asynchronous dependencies and data-flow, so you could write <code class="language-plaintext highlighter-rouge">just(std::move(data)) | continues_on(sch) | bulk(...)</code> and execute that on a CPU, but if <code class="language-plaintext highlighter-rouge">sch</code> is a GPU, that same pipeline is still correct, and that the definition of the GPU scheduler would inject the code to transport the data to the GPU.</li>
+  <li>“These operation states seem very simple. Why bother with them?” They are more interesting for <code class="language-plaintext highlighter-rouge">when_all</code>, <code class="language-plaintext highlighter-rouge">let_value</code>, and others, and their lifetime invariants are core to the “structured” part of “structured concurrency”.</li>
+  <li>What is <code class="language-plaintext highlighter-rouge">then(f) | then(g)</code> on its own? I thought pipelines were left-associative? Yes, but through trickery, the authors have set it up so you can build adaptors using the pipe syntax and have them work as you’d expect.</li>
+  <li>“The P2300 set of senders and sender-adapters doesn’t seem complete.” It isn’t. There are more. Some can be written in terms of the provided functionality, but for now, for some operations, you will have to write your own.</li>
+</ul>
+
+<p>If there’s enough interest, I’d consider digging into these or other topics in future posts.</p>
+
+<h2 id="conclusion">Conclusion</h2>
+<p>There’s a lot of machinery in Senders, but at its core, it’s solving a very hard problem. Could it be simpler? Maybe?
+But I think we primarily need more documentation of the the details so we can all have an intuition for what code-gen will result from composed sender algorithms.
+See <a href="https://godbolt.org/z/4d7r4Ea8r">https://godbolt.org/z/4d7r4Ea8r</a> to explore for yourself.</p>
+
+<p>Thanks to the following people:</p>
+
+<ul>
+  <li>Dietmar Kühl for the spirited face-to-face conversation (and allowing me to nerd-snipe him about cancellation at CppCon).</li>
+  <li>Daisy Hollman, whose <a href="https://cppcon2024.sched.com/event/1gZgc/ranges-are-output-range-adaptors-the-next-iteration-of-c-ranges">CppCon talk</a> about “<a href="https://github.com/dhollman/daisychains">Daisy Chains</a>” got me thinking about push-versus-pull pipelines, making me realize that with the right API, it should be possible to transform the lazy view <code class="language-plaintext highlighter-rouge">r | std::views::transform(f) | std::views::filter(p)</code> into a “pushable” object – essentially exactly what <code class="language-plaintext highlighter-rouge">connect(snd, rec)</code> does.</li>
+  <li>Ville Voutilainen for his comments on a draft.</li>
+  <li>Eric Niebler for designing this system, refining it such as renaming <code class="language-plaintext highlighter-rouge">continues_on</code> and fixing cancelation after split, and for his encouragement to write this article.</li>
+</ul>
+
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+  </ul>
+</div>
+
+    </div>
+
+  </body>
+</html>
