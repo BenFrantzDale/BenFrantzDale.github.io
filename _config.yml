@@ -1,4 +1,7 @@
-﻿remote_theme: mmistakes/minimal-mistakes@4.24.0 # Change version as needed
+﻿plugins:
+  - jekyll-remote-theme
+
+remote_theme: mmistakes/minimal-mistakes@4.24.0 # Change version as needed
 
 title: "Ben FrantzDale's Blog"
 description: "A blog about software, engineering, and more."
