@@ -1,12 +1,8 @@
-﻿plugins:
-  - jekyll-remote-theme
-
-remote_theme: mmistakes/minimal-mistakes@4.24.0 # Change version as needed
-
-title: "Ben FrantzDale's Blog"
+﻿title: "Ben FrantzDale's Blog"
 description: "A blog about software, engineering, and more."
 url: "https://benfrantzdale.github.io"
 baseurl: ""
+theme: jekyll-theme-cayman
 
 markdown: kramdown
 highlighter: rouge

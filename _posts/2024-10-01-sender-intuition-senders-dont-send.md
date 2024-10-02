@@ -1,5 +1,5 @@
 ﻿---
-layout: single
+layout: post
 title: "Sender Intuition: Senders Don't Send"
 date: 2024-10-01 12:00:00 +0000
 categories: blog
