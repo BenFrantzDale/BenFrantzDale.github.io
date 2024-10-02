@@ -71,7 +71,7 @@ OK, so then what is a receiver? A receiver is a callback that, conceptually, a s
 
 So what does connecting do? As a diagram, it’s more like this:
 
-![Calling `connect(sender, receiver)` produces an operation state containing the receiver and exposing a `start()` member function.`](assets/images/opstate.png)
+![Calling `connect(sender, receiver)` produces an operation state containing the receiver and exposing a `start()` member function.`](/assets/images/opstate.png)
 
 But diagrams are handwavy. Let’s look at a very simple example with code. We can make our own receiver that logs the call to `set_value`:  
 ```cpp

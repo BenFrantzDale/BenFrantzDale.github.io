@@ -2,7 +2,8 @@
 description: "A blog about software, engineering, and more."
 url: "https://benfrantzdale.github.io"
 baseurl: ""
-theme: jekyll-theme-cayman
+#theme: jekyll-theme-cayman
+theme: jekyll-theme-slate
 
 markdown: kramdown
 highlighter: rouge
