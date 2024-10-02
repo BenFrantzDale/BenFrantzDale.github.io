@@ -94,7 +94,9 @@ template <typename T, ex::receiver Downstream>
 struct JustOpState {
     T x;
     Downstream downstream;
-    void start() noexcept { ex::set_value(this->downstream, this->x); }
+    void start() noexcept {
+        ex::set_value(this->downstream, this->x);
+    }
 };
 ```  
 Where `connect` is customized so that `auto opState = connect(just(42), printing_receiver{});` turns into  
@@ -141,7 +143,9 @@ struct ThenReceiver {
     Fn fn;
     Downstream downstream;
 
-    void set_value(auto x) noexcept { ex::set_value(this->downstream, this->fn(x)); }
+    void set_value(auto x) noexcept {
+        ex::set_value(this->downstream, this->fn(x));
+    }
 };
 ```  
 So putting it all together: we started with `then(just(x), f)` which is essentially  
@@ -185,7 +189,10 @@ struct MyPoolSchedulerOpState {
     }  
 };
 
-auto connect(ScheduleSender<MyPoolScheduler> snd, ex::receiver auto downstream) {  
+auto connect(
+    ScheduleSender<MyPoolScheduler> snd,
+    ex::receiver auto downstream
+) {  
     return MyPoolSchedulerOpState{snd.sch, downstream};  
 }  
 ```  
