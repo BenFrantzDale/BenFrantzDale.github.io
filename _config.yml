@@ -15,7 +15,7 @@
 # in the templates via {{ site.myvariable }}.
 #
 title: "Ben FrantzDale's Blog"
-description: "A blog about software, engineering, and more."
+description: "A blog about software, engineering, and more (but really just software right now)."
 url: "https://benfrantzdale.github.io"
 baseurl: ""
 
