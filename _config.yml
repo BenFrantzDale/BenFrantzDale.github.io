@@ -2,6 +2,18 @@
 description: "A blog about software, engineering, and more."
 url: "https://benfrantzdale.github.io"
 baseurl: ""
+
+
+author:
+  name: "Ben FrantzDale"
+#  avatar: "/assets/images/avatar.png"  # path to your avatar image
+  bio: "Multidisciplinary engineer with deep expertise in C++ library design and 3D reconstruction. Previously at Formlabs. Currently: Looking for my next professional C++ opportunity."
+  location: "Greater Boston"
+  links:
+    - label: "LinkedIn"
+      url: "https://www.linkedin.com/in/benfrantzdale"
+
+
 #theme: jekyll-theme-cayman
 #theme: jekyll-theme-slate
 theme: minima
