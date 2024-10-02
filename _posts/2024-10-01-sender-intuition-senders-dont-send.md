@@ -10,7 +10,9 @@ categories: blog
 Ben FrantzDale  
 1 October 2024
 
-I’ve been keeping an eye on the [P2300 “Senders” proposal](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p2300r10.html#intro) for generic asynchrony for many years, but felt like I never quite “got” it. I know I’m not the only one who has found it challenging to grok, leading to questions like [is `then(f)` a sender–receiver?](https://www.youtube.com/watch?v=nQpXOx0D7I8&t=1390s) Yet, I could tell a while ago that it showed amazing promise, taking inspiration from Stepanov with the ambitious goal of generically abstracting asynchronous programming with the goal of zero runtime abstraction overhead. The promise is that this will allow us to write code that works equally well for describing asynchronous algorithms on a microcontroller (without allocation or exceptions) as it does for distributing the processing of terabytes of data across a cluster of GPUs or other supercomputers. It’s a lofty goal, but as far as I can tell the goal is being met! Somehow my confusion dissolved on my drive home from the airport after CppCon 2024. Let me share the step-by-step understanding that finally made it click.
+I’ve been keeping an eye on the [P2300 “Senders” proposal](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p2300r10.html#intro) for generic asynchrony for many years, but felt like I never quite “got” it. 
+I know I’m not the only one who has found it challenging to grok, 
+leading to questions like "[is `then(f)` a sender–receiver?](https://www.youtube.com/watch?v=nQpXOx0D7I8&t=1390s)" (It's not; see below.) Yet, I could tell a while ago that it showed amazing promise, taking inspiration from Stepanov with the ambitious goal of generically abstracting asynchronous programming with the goal of zero runtime abstraction overhead. The promise is that this will allow us to write code that works equally well for describing asynchronous algorithms on a microcontroller (without allocation or exceptions) as it does for distributing the processing of terabytes of data across a cluster of GPUs or other supercomputers. It’s a lofty goal, but as far as I can tell the goal is being met! Somehow my confusion dissolved on my drive home from the airport after CppCon 2024. Let me share the step-by-step understanding that finally made it click.
 
 ## Background
 
@@ -45,7 +47,7 @@ For me, intuition for (1) requires that I understand at least the basics of (2) 
 
 Conceptually a sender is something you can “connect” to a “receiver” and “press start” and know that eventually the receiver you connected will be notified of the result (or get a stopped signal or an error value).
 
-![Not stricktly correct: Conceptually a sender is connected to a reciever allowing you to call `start()`.](assets/images/conceptually-connected.png)
+![Not stricktly correct: Conceptually a sender is connected to a reciever allowing you to call `start()`.](/assets/images/conceptually-connected.png)
 
 When people say “this sender does that and sends its result…”, that’s what they mean, but as we’ll see below, that’s not exactly what happens, and if you are expecting that, you’ll get lost.
 
@@ -106,7 +108,7 @@ Notice that there are no senders left after `opState` has been constructed: the 
 
 Let’s build on that: `just(x) | then(f)` (equivalently `then(just(x), f)`) is a sender that we say “completes” with a value of `decltype(f(x))`. (Again, strictly speaking *it* doesn’t complete: it gets transformed into something else that ultimately calls `set_value` on the receiver we called `connect` with it.) The expression `then(just(x), f)`, is a sender. Looking at the right end of the pipeline it’s a `then` sender (that is, a sender produced by the `then` adapter). That sender itself contains (a copy of) the `just(x)` sender). What happens when we connect it? Well, a then sender needs an operation state for connecting it to a receiver. Here’s what a then sender looks like:  
 ```cpp
-Template <ex::sender Upstream, typename F>   
+template <ex::sender Upstream, typename F>   
 struct ThenSender {  
     Upstream upstream_;  
     F fn_;  
@@ -162,7 +164,7 @@ struct ScheduleSender {
 };
 
 //! Operation state for scheduling:  
-Template <ex::receiver Downstream>  
+template <ex::receiver Downstream>  
 struct MyPoolSchedulerOpState {  
     MyPoolScheduler sch_;  
     Downstream downstream_;  
