@@ -5,10 +5,8 @@ date: 2024-10-01 12:00:00 +0000
 categories: blog
 ---
 
-# Sender Intuition: Senders Don’t Send
+> TL;DR: https://godbolt.org/z/4d7r4Ea8r
 
-Ben FrantzDale  
-1 October 2024
 
 I’ve been keeping an eye on the [P2300 “Senders” proposal](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p2300r10.html#intro) for generic asynchrony for many years, but felt like I never quite “got” it. 
 I know I’m not the only one who has found it challenging to grok, 
@@ -89,61 +87,74 @@ Writing `connect(ex::just("foo"), printing_receiver{}).start()` is a very round-
 
 So what happens? Where does the result of `connect` come from? The `connect` customization–point object is customizable for any sender and receiver, but here it’s `just(x)` that provided it: `just(x)` is a sender – it doesn’t have a corresponding receiver type, but it does have an operation state that conceptually is  
 ```cpp
-//! Operation state for unary `just(x)`:  
-template <typename T,  ex::receiver Downstream>  
-struct JustOpState {  
-    T val_;  
-    Downstream downstream_;  
-    void start() {  
-        downstream_.set_value(val_);  
-    }  
-};  
+//! Operation state for unary `just(x)`.
+//! Starting it calls set_value on the downstream receiver.
+template <typename T, ex::receiver Downstream>
+struct JustOpState {
+    T x;
+    Downstream downstream;
+    void start() noexcept { ex::set_value(this->downstream, this->x); }
+};
 ```  
 Where `connect` is customized so that `auto opState = connect(just(42), printing_receiver{});` turns into  
 ```cpp
-auto opState = JustOpState{.val_ = 42, .downstream_= printing_receiver{}};  
+auto opState = JustOpState{.x = 123, .downstream = printing_receiver{}};  
 ```  
-And then `opState.start()` just calls `downstream_.set_value(42)` on the `printing_receiver`.  
+And then `opState.start()` just calls `downstream_.set_value(123)` on the `printing_receiver`.  
 Notice that there are no senders left after `opState` has been constructed: the temporary that is the result of `just(42)` is gone. While you will hear people say we “connect a sender to a receiver” – and at a high level that’s true – we actually created an operation state corresponding to that sender connected to that receiver.
 
 Let’s build on that: `just(x) | then(f)` (equivalently `then(just(x), f)`) is a sender that we say “completes” with a value of `decltype(f(x))`. (Again, strictly speaking *it* doesn’t complete: it gets transformed into something else that ultimately calls `set_value` on the receiver we called `connect` with it.) The expression `then(just(x), f)`, is a sender. Looking at the right end of the pipeline it’s a `then` sender (that is, a sender produced by the `then` adapter). That sender itself contains (a copy of) the `just(x)` sender). What happens when we connect it? Well, a then sender needs an operation state for connecting it to a receiver. Here’s what a then sender looks like:  
 ```cpp
-template <ex::sender Upstream, typename F>   
-struct ThenSender {  
-    Upstream upstream_;  
-    F fn_;  
+//! Sender for the `then` adapter.
+//! Wraps an upstream sender with a function call.
+template <stdexec::sender Upstream, typename Fn>
+struct ThenSender {
+    // Explicit concept opt-in:
+    using sender_concept = ex::sender_t;
+    Upstream upstream;
+    Fn fn;
+
+    auto connect(ex::receiver auto downstream) {
+        return ex::connect(
+            this->upstream, 
+            ThenReceiver{.downstream = downstream, .fn = this->fn}
+        );
+    }
+    
+    ...
 };  
 ```  
 Note that it encapsulates everything to the *left* in the pipeline (the `just`), so in this case `Upstream` is `JustSender<int>`, so it’s basically `ThenSender{.upstream_ = JustSender{x}, .fn_ = f}`. 
 
-What does `connect` do? Basically `**connect` turns nested nested sender-adapter pipeline inside out**: While a pipeline of sender adapters is a nested structure with the right end on the outside, so `then(just(x), f)` is a then-sender containing a just-sender as its upstream sender, `connect` does this:  
+Let's look at `connect`: Basically it **turns nested nested sender-adapter "onion" inside out**.
+The recursive call to `ex::connect(this->upstream, ...)` will produce `upstream`'s operation state wrapped around `ThisReceiver` with `downstream` inside.
+So in the case of `then(just(x), f)`, calling `connect` returns the result of connecting `just(x)` to a `ThenReceiver`. So what’s that?  
 ```cpp
-template <ex::sender Upstream, typename F, ex::receiver Downstream>   
-auto connect(ThenSender<Upstream, F> snd, Downstream receiver) {  
-    return ex::connect(snd.upstream_, ThenReceiver{.fn_ = snd.fn_, .downstream=receiver});  
-}  
-```  
-This recursively turns the nested sender-adapters inside out, so in the case of `then(just(x), f)`, calling `connect` returns the result of connecting `just(x)` to a `ThenReceiver`. So what’s that?  
-```cpp
-template <typename F, ex::receiver Downstream>  
-struct ThenReceiver {  
-    using receiver_concept = ex::receiver_t;  
-    F fn_;  
-    Downstream downstream_;  
-    void set_value(auto x) noexcept {  
-        downstream_.set_value(fn_(x));  
-    }  
-};  
+//! A receiver for the `then` sender adapter.
+//! Wraps a downstream receiver with a function call.
+template <typename Fn, ex::receiver Downstream>
+struct ThenReceiver {
+    // Explicit concept opt-in:
+    using receiver_concept = ex::receiver_t;
+
+    Fn fn;
+    Downstream downstream;
+
+    void set_value(auto x) noexcept { ex::set_value(this->downstream, this->fn(x)); }
+};
 ```  
 So putting it all together: we started with `then(just(x), f)` which is essentially  
 ```cpp
-ThenSender{.upstream_ = JustSender{x}, .fn_ = f}  
+ThenSender{.upstream = JustSender{x}, .fn = f}  
 ```
 and when we call `auto opState = connect(then(just(x), f), printing_receiver{});` it evaluates to  
 ```cpp
-auto opState = JustOpState{.val_ = x, .downstream_=  
-    ThenReceiver{.fn_ = f, .downstream_ = printing_receiver{}}  
-};  
+auto opState = JustOpState{
+    .x = x, 
+    .downstream =  
+        ThenReceiver{.fn = f, .downstream = printing_receiver{}
+    }
+};
 ```
 Let’s review what happened here:
 
@@ -160,21 +171,21 @@ The above is just a long way to compose functions (as Sean Parent points out in 
 ```cpp
 template <ex::scheduler Sch>  
 struct ScheduleSender {  
-    Sch scheduler_;  
+    Sch scheduler;  
 };
 
 //! Operation state for scheduling:  
 template <ex::receiver Downstream>  
 struct MyPoolSchedulerOpState {  
-    MyPoolScheduler sch_;  
-    Downstream downstream_;  
+    MyPoolScheduler sch;  
+    Downstream downstream;  
     void start() {  
-        sch_.getResource().enqueue([&] { downstream_.set_value(); });  
+        sch.getResource().enqueue([&] { downstream_.set_value(); });  
     }  
 };
 
 auto connect(ScheduleSender<MyPoolScheduler> snd, ex::receiver auto downstream) {  
-    return MyPoolSchedulerOpState{snd.sch_, downstream};  
+    return MyPoolSchedulerOpState{snd.sch, downstream};  
 }  
 ```  
 So when connected, we get a `MyPoolSchedulerOpState<...>`, and when started, the calling thread executes `sch_.getResource().enqueue([&] { downstream_.set_value(); });` and immediately returns, causing the thread pool to wake up and eventually `call downstream_.set_value();`. In contrast, I’ve heard talks say things like “When the `schedule(sch)` sender starts, it’s going to start on a thread in that thread pool.” That’s conceptually correct a very high level, but that language can trip people up: objects that model the `std::execution::sender` concept don’t ever actually start, and in as much as they do, they start on the thread that called `opState.start()`.
@@ -202,19 +213,25 @@ The above gives the basic intuition for what `schedule(sch) | then(f) | then(g)`
 
 ## Further Intuition
 
-There a bunch more questions I haven’t yet explored, but could be their own articles:
+There a bunch more questions I haven’t yet explored in depth, but could be their own articles:
 
 * What happens at the end of `when_all(schedule(sch) | then(f), schedule(sch) | then(g))`? A thread from `sch` must realize it’s the “last one out”. Then what?  
   “Why all of these abstraction layers?” One inkling: By transforming a sender chain to a receiver chain at the point of connection to the final receiver, there are customization points to allow information to travel in both directions through the chan, so what started life as `just()` turns into something that knows what execution resource it is running on, if it needs to report cancelation, etc.  
-* “How does cancelation work?” I haven’t talked about the error or stopped channels, but an interesting aspect of P2300’s design, where then “sender onion” gets turned inside out into a “receiver onion” is that it lets the “receiver onion” look inside itself to ask if cancellation is even possible, removing potential overhead.  
+* “What's this `let_value` thing for?” It lets you put off creating a sender until mid-execution, which is useful for various reasons.
+* “How does cancelation work?” I haven’t talked about the error or stopped channels, but an interesting aspect of P2300’s design, where then “sender onion” gets turned inside out into a “receiver onion” is that it lets the “receiver onion” look inside itself to ask if cancellation is even possible, removing potential overhead.
+* “What's an environment? Why would I query it?” For example, it lets you know if you need to worry about cancelation.
 * “Why is everything a customization point?” Well, for moving to a GPU you need to actually move data around. The goal here is to decouple the description of asynchronous dependencies and data-flow, so you could write `just(std::move(data)) | continues_on(sch) | bulk(...)` and execute that on a CPU, but if `sch` is a GPU, that same pipeline is still correct, and that the definition of the GPU scheduler would inject the code to transport the data to the GPU.  
 * “These operation states seem very simple. Why bother with them?” They are more interesting for `when_all`, `let_value`, and others, and their lifetime invariants are core to the “structured” part of “structured concurrency”.  
 * What is `then(f) | then(g)` on its own? I thought pipelines were left-associative? Yes, but through trickery, the authors have set it up so you can build adaptors using the pipe syntax and have them work as you’d expect.  
 * “The P2300 set of senders and sender-adapters doesn’t seem complete.” It isn’t. There are more. Some can be written in terms of the provided functionality, but for now, for some operations, you will have to write your own.
 
-If there’s enough interest, I’d consider digging into these or other topics in a future post.
+If there’s enough interest, I’d consider digging into these or other topics in future posts.
 
-## 
+## Conclusion
+There's a lot of machinery in Senders, but at its core, it's solving a very hard problem. Could it be simpler? Maybe?
+But I think we primarily need more documentation of the the details so we can all have an intuition for what code-gen will result from composed sender algorithms.
+See https://godbolt.org/z/4d7r4Ea8r to explore for yourself.
+
 
 Thanks to the following people:
 
