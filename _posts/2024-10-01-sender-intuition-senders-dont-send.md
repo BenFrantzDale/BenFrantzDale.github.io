@@ -63,7 +63,7 @@ So what’s really going on? Let’s consider some expressions you’ll see in S
 
 So, what can you do with senders? I heard they send things and connect to things. I’ve heard about receivers. Are some senders also receivers? Certainly that must be the case, right? (I had thought `then(f)` was somehow a sender and a receiver.) We are making a pipeline of senders, right? (We are not.) Senders get connected to receivers? (Yes and no.) 
 
-> The one thing you can do with a sender is call `connect(snd, rec)`. That’s it.
+***The one thing you can do with a sender is call `connect(snd, rec)`. That’s it.***
 
 OK, so then what is a receiver? A receiver is a callback that, conceptually, a sender can send to. We take one sender (which can represent a whole chain of work), and plug it into a receiver, producing an object that’s ready to run – where we can call `start()` and know that eventually the receiver will receive the result (or a stop or error signal). But here’s the rub: While we might say “you connect a sender to a receiver”, that’s not precisely true. At least not in the same sense that in an object-oriented framework you might connect an object to a callback, modifying the source object. Remember, we want to be able to avoid allocation, and these are value types assembled as expression templates, so we don’t mutate the senders (i.e., **you will never find a sender that is connected to a receiver**), instead, connection produces a new object: an operation state. Typically this will have a copy of the receiver in it, but in general it won’t include the sender that was passed to `connect`. If this feels like a lot of indirection without getting to the “do parallel work” part, keep in mind that this design needs to admit basically all asynchrony, and so there are reasons for these layers. My goal here is just to clarify what the layers are.
 
@@ -245,6 +245,6 @@ Thanks to the following people:
 
 * Dietmar Kühl for the spirited face-to-face conversation (and allowing me to nerd-snipe him about cancellation at CppCon).  
 * Daisy Hollman, whose [CppCon talk](https://cppcon2024.sched.com/event/1gZgc/ranges-are-output-range-adaptors-the-next-iteration-of-c-ranges) about “[Daisy Chains](https://github.com/dhollman/daisychains)” got me thinking about push-versus-pull pipelines, making me realize that with the right API, it should be possible to transform the lazy view `r | std::views::transform(f) | std::views::filter(p)` into a “pushable” object – essentially exactly what `connect(snd, rec)` does.  
-* Ville Voutilainen for his comments on a draft.  
-* Eric Niebler for designing this system, refining it such as renaming `continues_on` and fixing cancelation after split, and for his encouragement to write this article.
+* Ville Voutilainen for his comments on a draft.
+* Eric Niebler for spearheading standardization of this system, refining it such as renaming `continues_on`, and for his encouragement to write this article.
 
