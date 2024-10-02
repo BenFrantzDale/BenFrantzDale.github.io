@@ -201,7 +201,7 @@ auto connect(
     return MyPoolSchedulerOpState{snd.sch, downstream};  
 }  
 ```  
-So when connected, we get a `MyPoolSchedulerOpState<...>`, and when started, the calling thread executes `this->sch.getResource().enqueue([&] { this->downstream.set_value(); });` and immediately returns, causing the thread pool to wake up and eventually call `this->downstream.set_value();`. In contrast, I’ve heard talks say things like “When the `schedule(sch)` sender starts, it’s going to start on a thread in that thread pool.” That’s conceptually correct a very high level, but that language can trip people up: objects that model the `std::execution::sender` concept don’t ever actually start, and in as much as they do, they start on the thread that called `opState.start()`.
+So when connected, we get a `MyPoolSchedulerOpState<...>`, and when started, the calling thread executes `this->sch.getResource().enqueue([this] { this->downstream.set_value(); });` and immediately returns, causing the thread pool to wake up and eventually call `this->downstream.set_value();`. In contrast, I’ve heard talks say things like “When the `schedule(sch)` sender starts, it’s going to start on a thread in that thread pool.” That’s conceptually correct a very high level, but that language can trip people up: objects that model the `std::execution::sender` concept don’t ever actually start, and in as much as they do, they start on the thread that called `opState.start()`.
 
 I want to highlight two things here:
 
