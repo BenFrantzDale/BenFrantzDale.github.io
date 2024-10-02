@@ -19,7 +19,7 @@ P2300 describes asynchronous work as “senders” – things which do some work
 auto result = sync_wait(  
     when_all(schedule(sch) | then(f),  
              schedule(sch) | then(g))  
-).value();  
+).value(); 
 ```  
 To compute `f` on and `g` potentially in parallel, without even allocating memory!
 
@@ -103,7 +103,7 @@ Where `connect` is customized so that `auto opState = connect(just(42), printing
 ```cpp
 auto opState = JustOpState{.x = 123, .downstream = printing_receiver{}};  
 ```  
-And then `opState.start()` just calls `downstream_.set_value(123)` on the `printing_receiver`.  
+And then `opState.start()` just calls `downstream.set_value(123)` on the `printing_receiver`.  
 Notice that there are no senders left after `opState` has been constructed: the temporary that is the result of `just(42)` is gone. While you will hear people say we “connect a sender to a receiver” – and at a high level that’s true – we actually created an operation state corresponding to that sender connected to that receiver.
 
 Let’s build on that: `just(x) | then(f)` (equivalently `then(just(x), f)`) is a sender that we say “completes” with a value of `decltype(f(x))`. (Again, strictly speaking *it* doesn’t complete: it gets transformed into something else that ultimately calls `set_value` on the receiver we called `connect` with it.) The expression `then(just(x), f)`, is a sender. Looking at the right end of the pipeline it’s a `then` sender (that is, a sender produced by the `then` adapter). That sender itself contains (a copy of) the `just(x)` sender). What happens when we connect it? Well, a then sender needs an operation state for connecting it to a receiver. Here’s what a then sender looks like:  
@@ -184,8 +184,13 @@ template <ex::receiver Downstream>
 struct MyPoolSchedulerOpState {  
     MyPoolScheduler sch;  
     Downstream downstream;  
-    void start() {  
-        sch.getResource().enqueue([&] { downstream_.set_value(); });  
+    void start() {
+        // It's the caller's responsability to 
+        // keep *this alive to the end of execution,
+        // so locally here it's safe to capture this:
+        this->sch.getResource().enqueue(
+            [this] { this->downstream.set_value(); }
+        );  
     }  
 };
 
@@ -196,7 +201,7 @@ auto connect(
     return MyPoolSchedulerOpState{snd.sch, downstream};  
 }  
 ```  
-So when connected, we get a `MyPoolSchedulerOpState<...>`, and when started, the calling thread executes `sch_.getResource().enqueue([&] { downstream_.set_value(); });` and immediately returns, causing the thread pool to wake up and eventually `call downstream_.set_value();`. In contrast, I’ve heard talks say things like “When the `schedule(sch)` sender starts, it’s going to start on a thread in that thread pool.” That’s conceptually correct a very high level, but that language can trip people up: objects that model the `std::execution::sender` concept don’t ever actually start, and in as much as they do, they start on the thread that called `opState.start()`.
+So when connected, we get a `MyPoolSchedulerOpState<...>`, and when started, the calling thread executes `this->sch.getResource().enqueue([&] { this->downstream.set_value(); });` and immediately returns, causing the thread pool to wake up and eventually call `this->downstream.set_value();`. In contrast, I’ve heard talks say things like “When the `schedule(sch)` sender starts, it’s going to start on a thread in that thread pool.” That’s conceptually correct a very high level, but that language can trip people up: objects that model the `std::execution::sender` concept don’t ever actually start, and in as much as they do, they start on the thread that called `opState.start()`.
 
 I want to highlight two things here:
 

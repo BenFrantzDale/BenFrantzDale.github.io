@@ -44,7 +44,7 @@
           Ben FrantzDale's Blog
         </a>
       </h1>
-      <p class="lead">A blog about software, engineering, and more.</p>
+      <p class="lead">A blog about software, engineering, and more (but really just software right now).</p>
     </div>
 
     <nav class="sidebar-nav">
@@ -101,7 +101,7 @@ leading to questions like “<a href="https://www.youtube.com/watch?v=nQpXOx0D7I
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">auto</span> <span class="n">result</span> <span class="o">=</span> <span class="n">sync_wait</span><span class="p">(</span>  
     <span class="n">when_all</span><span class="p">(</span><span class="n">schedule</span><span class="p">(</span><span class="n">sch</span><span class="p">)</span> <span class="o">|</span> <span class="n">then</span><span class="p">(</span><span class="n">f</span><span class="p">),</span>  
              <span class="n">schedule</span><span class="p">(</span><span class="n">sch</span><span class="p">)</span> <span class="o">|</span> <span class="n">then</span><span class="p">(</span><span class="n">g</span><span class="p">))</span>  
-<span class="p">).</span><span class="n">value</span><span class="p">();</span>  
+<span class="p">).</span><span class="n">value</span><span class="p">();</span> 
 </code></pre></div></div>
 <p>To compute <code class="language-plaintext highlighter-rouge">f</code> on and <code class="language-plaintext highlighter-rouge">g</code> potentially in parallel, without even allocating memory!</p>
 
@@ -147,9 +147,7 @@ leading to questions like “<a href="https://www.youtube.com/watch?v=nQpXOx0D7I
 
 <p>So, what can you do with senders? I heard they send things and connect to things. I’ve heard about receivers. Are some senders also receivers? Certainly that must be the case, right? (I had thought <code class="language-plaintext highlighter-rouge">then(f)</code> was somehow a sender and a receiver.) We are making a pipeline of senders, right? (We are not.) Senders get connected to receivers? (Yes and no.)</p>
 
-<blockquote>
-  <p>The one thing you can do with a sender is call <code class="language-plaintext highlighter-rouge">connect(snd, rec)</code>. That’s it.</p>
-</blockquote>
+<p><strong><em>The one thing you can do with a sender is call <code class="language-plaintext highlighter-rouge">connect(snd, rec)</code>. That’s it.</em></strong></p>
 
 <p>OK, so then what is a receiver? A receiver is a callback that, conceptually, a sender can send to. We take one sender (which can represent a whole chain of work), and plug it into a receiver, producing an object that’s ready to run – where we can call <code class="language-plaintext highlighter-rouge">start()</code> and know that eventually the receiver will receive the result (or a stop or error signal). But here’s the rub: While we might say “you connect a sender to a receiver”, that’s not precisely true. At least not in the same sense that in an object-oriented framework you might connect an object to a callback, modifying the source object. Remember, we want to be able to avoid allocation, and these are value types assembled as expression templates, so we don’t mutate the senders (i.e., <strong>you will never find a sender that is connected to a receiver</strong>), instead, connection produces a new object: an operation state. Typically this will have a copy of the receiver in it, but in general it won’t include the sender that was passed to <code class="language-plaintext highlighter-rouge">connect</code>. If this feels like a lot of indirection without getting to the “do parallel work” part, keep in mind that this design needs to admit basically all asynchrony, and so there are reasons for these layers. My goal here is just to clarify what the layers are.</p>
 
@@ -178,13 +176,15 @@ Writing <code class="language-plaintext highlighter-rouge">connect(ex::just("foo
 <span class="k">struct</span> <span class="nc">JustOpState</span> <span class="p">{</span>
     <span class="n">T</span> <span class="n">x</span><span class="p">;</span>
     <span class="n">Downstream</span> <span class="n">downstream</span><span class="p">;</span>
-    <span class="kt">void</span> <span class="n">start</span><span class="p">()</span> <span class="k">noexcept</span> <span class="p">{</span> <span class="n">ex</span><span class="o">::</span><span class="n">set_value</span><span class="p">(</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">downstream</span><span class="p">,</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">x</span><span class="p">);</span> <span class="p">}</span>
+    <span class="kt">void</span> <span class="n">start</span><span class="p">()</span> <span class="k">noexcept</span> <span class="p">{</span>
+        <span class="n">ex</span><span class="o">::</span><span class="n">set_value</span><span class="p">(</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">downstream</span><span class="p">,</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">x</span><span class="p">);</span>
+    <span class="p">}</span>
 <span class="p">};</span>
 </code></pre></div></div>
 <p>Where <code class="language-plaintext highlighter-rouge">connect</code> is customized so that <code class="language-plaintext highlighter-rouge">auto opState = connect(just(42), printing_receiver{});</code> turns into</p>
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">auto</span> <span class="n">opState</span> <span class="o">=</span> <span class="n">JustOpState</span><span class="p">{.</span><span class="n">x</span> <span class="o">=</span> <span class="mi">123</span><span class="p">,</span> <span class="p">.</span><span class="n">downstream</span> <span class="o">=</span> <span class="n">printing_receiver</span><span class="p">{}};</span>  
 </code></pre></div></div>
-<p>And then <code class="language-plaintext highlighter-rouge">opState.start()</code> just calls <code class="language-plaintext highlighter-rouge">downstream_.set_value(123)</code> on the <code class="language-plaintext highlighter-rouge">printing_receiver</code>.<br />
+<p>And then <code class="language-plaintext highlighter-rouge">opState.start()</code> just calls <code class="language-plaintext highlighter-rouge">downstream.set_value(123)</code> on the <code class="language-plaintext highlighter-rouge">printing_receiver</code>.<br />
 Notice that there are no senders left after <code class="language-plaintext highlighter-rouge">opState</code> has been constructed: the temporary that is the result of <code class="language-plaintext highlighter-rouge">just(42)</code> is gone. While you will hear people say we “connect a sender to a receiver” – and at a high level that’s true – we actually created an operation state corresponding to that sender connected to that receiver.</p>
 
 <p>Let’s build on that: <code class="language-plaintext highlighter-rouge">just(x) | then(f)</code> (equivalently <code class="language-plaintext highlighter-rouge">then(just(x), f)</code>) is a sender that we say “completes” with a value of <code class="language-plaintext highlighter-rouge">decltype(f(x))</code>. (Again, strictly speaking <em>it</em> doesn’t complete: it gets transformed into something else that ultimately calls <code class="language-plaintext highlighter-rouge">set_value</code> on the receiver we called <code class="language-plaintext highlighter-rouge">connect</code> with it.) The expression <code class="language-plaintext highlighter-rouge">then(just(x), f)</code>, is a sender. Looking at the right end of the pipeline it’s a <code class="language-plaintext highlighter-rouge">then</code> sender (that is, a sender produced by the <code class="language-plaintext highlighter-rouge">then</code> adapter). That sender itself contains (a copy of) the <code class="language-plaintext highlighter-rouge">just(x)</code> sender). What happens when we connect it? Well, a then sender needs an operation state for connecting it to a receiver. Here’s what a then sender looks like:</p>
@@ -222,7 +222,9 @@ So in the case of <code class="language-plaintext highlighter-rouge">then(just(x
     <span class="n">Fn</span> <span class="n">fn</span><span class="p">;</span>
     <span class="n">Downstream</span> <span class="n">downstream</span><span class="p">;</span>
 
-    <span class="kt">void</span> <span class="n">set_value</span><span class="p">(</span><span class="k">auto</span> <span class="n">x</span><span class="p">)</span> <span class="k">noexcept</span> <span class="p">{</span> <span class="n">ex</span><span class="o">::</span><span class="n">set_value</span><span class="p">(</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">downstream</span><span class="p">,</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">fn</span><span class="p">(</span><span class="n">x</span><span class="p">));</span> <span class="p">}</span>
+    <span class="kt">void</span> <span class="n">set_value</span><span class="p">(</span><span class="k">auto</span> <span class="n">x</span><span class="p">)</span> <span class="k">noexcept</span> <span class="p">{</span>
+        <span class="n">ex</span><span class="o">::</span><span class="n">set_value</span><span class="p">(</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">downstream</span><span class="p">,</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">fn</span><span class="p">(</span><span class="n">x</span><span class="p">));</span>
+    <span class="p">}</span>
 <span class="p">};</span>
 </code></pre></div></div>
 <p>So putting it all together: we started with <code class="language-plaintext highlighter-rouge">then(just(x), f)</code> which is essentially</p>
@@ -260,16 +262,24 @@ So in the case of <code class="language-plaintext highlighter-rouge">then(just(x
 <span class="k">struct</span> <span class="nc">MyPoolSchedulerOpState</span> <span class="p">{</span>  
     <span class="n">MyPoolScheduler</span> <span class="n">sch</span><span class="p">;</span>  
     <span class="n">Downstream</span> <span class="n">downstream</span><span class="p">;</span>  
-    <span class="kt">void</span> <span class="n">start</span><span class="p">()</span> <span class="p">{</span>  
-        <span class="n">sch</span><span class="p">.</span><span class="n">getResource</span><span class="p">().</span><span class="n">enqueue</span><span class="p">([</span><span class="o">&amp;</span><span class="p">]</span> <span class="p">{</span> <span class="n">downstream_</span><span class="p">.</span><span class="n">set_value</span><span class="p">();</span> <span class="p">});</span>  
+    <span class="kt">void</span> <span class="n">start</span><span class="p">()</span> <span class="p">{</span>
+        <span class="c1">// It's the caller's responsability to </span>
+        <span class="c1">// keep *this alive to the end of execution,</span>
+        <span class="c1">// so locally here it's safe to capture this:</span>
+        <span class="k">this</span><span class="o">-&gt;</span><span class="n">sch</span><span class="p">.</span><span class="n">getResource</span><span class="p">().</span><span class="n">enqueue</span><span class="p">(</span>
+            <span class="p">[</span><span class="k">this</span><span class="p">]</span> <span class="p">{</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">downstream</span><span class="p">.</span><span class="n">set_value</span><span class="p">();</span> <span class="p">}</span>
+        <span class="p">);</span>  
     <span class="p">}</span>  
 <span class="p">};</span>
 
-<span class="k">auto</span> <span class="n">connect</span><span class="p">(</span><span class="n">ScheduleSender</span><span class="o">&lt;</span><span class="n">MyPoolScheduler</span><span class="o">&gt;</span> <span class="n">snd</span><span class="p">,</span> <span class="n">ex</span><span class="o">::</span><span class="n">receiver</span> <span class="k">auto</span> <span class="n">downstream</span><span class="p">)</span> <span class="p">{</span>  
+<span class="k">auto</span> <span class="n">connect</span><span class="p">(</span>
+    <span class="n">ScheduleSender</span><span class="o">&lt;</span><span class="n">MyPoolScheduler</span><span class="o">&gt;</span> <span class="n">snd</span><span class="p">,</span>
+    <span class="n">ex</span><span class="o">::</span><span class="n">receiver</span> <span class="k">auto</span> <span class="n">downstream</span>
+<span class="p">)</span> <span class="p">{</span>  
     <span class="k">return</span> <span class="n">MyPoolSchedulerOpState</span><span class="p">{</span><span class="n">snd</span><span class="p">.</span><span class="n">sch</span><span class="p">,</span> <span class="n">downstream</span><span class="p">};</span>  
 <span class="p">}</span>  
 </code></pre></div></div>
-<p>So when connected, we get a <code class="language-plaintext highlighter-rouge">MyPoolSchedulerOpState&lt;...&gt;</code>, and when started, the calling thread executes <code class="language-plaintext highlighter-rouge">sch_.getResource().enqueue([&amp;] { downstream_.set_value(); });</code> and immediately returns, causing the thread pool to wake up and eventually <code class="language-plaintext highlighter-rouge">call downstream_.set_value();</code>. In contrast, I’ve heard talks say things like “When the <code class="language-plaintext highlighter-rouge">schedule(sch)</code> sender starts, it’s going to start on a thread in that thread pool.” That’s conceptually correct a very high level, but that language can trip people up: objects that model the <code class="language-plaintext highlighter-rouge">std::execution::sender</code> concept don’t ever actually start, and in as much as they do, they start on the thread that called <code class="language-plaintext highlighter-rouge">opState.start()</code>.</p>
+<p>So when connected, we get a <code class="language-plaintext highlighter-rouge">MyPoolSchedulerOpState&lt;...&gt;</code>, and when started, the calling thread executes <code class="language-plaintext highlighter-rouge">this-&gt;sch.getResource().enqueue([&amp;] { this-&gt;downstream.set_value(); });</code> and immediately returns, causing the thread pool to wake up and eventually call <code class="language-plaintext highlighter-rouge">this-&gt;downstream.set_value();</code>. In contrast, I’ve heard talks say things like “When the <code class="language-plaintext highlighter-rouge">schedule(sch)</code> sender starts, it’s going to start on a thread in that thread pool.” That’s conceptually correct a very high level, but that language can trip people up: objects that model the <code class="language-plaintext highlighter-rouge">std::execution::sender</code> concept don’t ever actually start, and in as much as they do, they start on the thread that called <code class="language-plaintext highlighter-rouge">opState.start()</code>.</p>
 
 <p>I want to highlight two things here:</p>
 
@@ -325,7 +335,7 @@ See <a href="https://godbolt.org/z/4d7r4Ea8r">https://godbolt.org/z/4d7r4Ea8r</a
   <li>Dietmar Kühl for the spirited face-to-face conversation (and allowing me to nerd-snipe him about cancellation at CppCon).</li>
   <li>Daisy Hollman, whose <a href="https://cppcon2024.sched.com/event/1gZgc/ranges-are-output-range-adaptors-the-next-iteration-of-c-ranges">CppCon talk</a> about “<a href="https://github.com/dhollman/daisychains">Daisy Chains</a>” got me thinking about push-versus-pull pipelines, making me realize that with the right API, it should be possible to transform the lazy view <code class="language-plaintext highlighter-rouge">r | std::views::transform(f) | std::views::filter(p)</code> into a “pushable” object – essentially exactly what <code class="language-plaintext highlighter-rouge">connect(snd, rec)</code> does.</li>
   <li>Ville Voutilainen for his comments on a draft.</li>
-  <li>Eric Niebler for designing this system, refining it such as renaming <code class="language-plaintext highlighter-rouge">continues_on</code> and fixing cancelation after split, and for his encouragement to write this article.</li>
+  <li>Eric Niebler for spearheading standardization of this system, refining it such as renaming <code class="language-plaintext highlighter-rouge">continues_on</code>, and for his encouragement to write this article.</li>
 </ul>
 
 
