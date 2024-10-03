@@ -12,7 +12,8 @@ Code: [https://godbolt.org/z/4d7r4Ea8r](https://godbolt.org/z/4d7r4Ea8r)
 
 I’ve been keeping an eye on the [P2300 “Senders” proposal](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p2300r10.html#intro) for generic asynchrony for many years, but felt like I never quite “got” it. 
 I know I’m not the only one who has found it challenging to grok, 
-leading to questions like "[is `then(f)` a sender–receiver?](https://www.youtube.com/watch?v=nQpXOx0D7I8&t=1390s)" (It's not; see below.) Yet, I could tell a while ago that it showed amazing promise, taking inspiration from Stepanov with the ambitious goal of generically abstracting asynchronous programming with the goal of zero runtime abstraction overhead. The promise is that this will allow us to write code that works equally well for describing asynchronous algorithms on a microcontroller (without allocation or exceptions) as it does for distributing the processing of terabytes of data across a cluster of GPUs or other supercomputers. It’s a lofty goal, but as far as I can tell the goal is being met! Somehow my confusion dissolved on my drive home from the airport after [CppCon 2024](https://cppcon.org/). Let me share the step-by-step understanding that finally made it click.
+leading to questions like "[is `then(f)` a sender–receiver?](https://www.youtube.com/watch?v=nQpXOx0D7I8&t=1390s)" (It's not; see below.) Yet, I could tell a while ago that it showed amazing promise, taking inspiration from Stepanov with the ambitious goal of generically abstracting asynchronous programming with the goal of zero runtime abstraction overhead. The promise is that this will allow us to write code that works equally well for describing asynchronous algorithms on a microcontroller (without allocation or exceptions) as it does for distributing the processing of terabytes of data across a cluster of GPUs or other supercomputers. It’s a lofty goal, but as far as I can tell the goal is being met! Somehow my confusion dissolved on my drive home from the airport 
+after [CppCon 2024](https://cppcon.org/). Let me share the step-by-step understanding that finally made it click.
 
 ## Background
 
@@ -53,9 +54,9 @@ When people say “this sender does that and sends its result…”, that’s wh
 
 So what’s really going on? Let’s consider some expressions you’ll see in Senders code:
 
-* `just()` is the simplest sender: It represents doing nothing and “sending” nothing onward. (A “value completion signature of `()`”.)  
-* `just(42)` is similar: it’s a sender that completes with the integer 42.  
-* `then(just(), f)` is a sender. It represents calling `f()` and sending the result onward.  
+* `just(42)` is among the simplest senders: it completes with the integer 42. What is it for? Well, for integers, it's not that interesting, but part of the goal of Senders is that not all execution resources are the same, or even in the same address space, so `just(giant_data_set) | continues_on(compute_cluster)` encapsulates the network transfer copying `giant_data_set` to `compute_cluster` while at the same time `just(42) | then(f)` could be optimized away at compile time to the result of `f(42)`. This zero-overhead genericity is part of what gets me exited about the Senders design!
+* `just()` is the simplest sender and is the base case of `just`: It represents doing nothing and “sending” nothing onward. (A “value completion signature of `()`”.) It's a natural base case so is worth mentioning and would be weird to disallow. 
+* `then(just(), f)` is a sender. It represents calling `f()` and sending the result onward.  Note that `then(just(), f)` is different from `just(f())` in that `just(f())` evaluates `f()` then and there whereas `then(just(), f)` is lazy.
 * `then(f)` is *not* a sender – it’s an adapter (a “sender adapter closure” if you want to be precise) that, with another sender piped in from the left, produces a sender. The existence of the type that is `then(f)` is really just to permit the pipe syntax.  
 * `just() | then(f)` is a sender, equivalent to `then(just(), f)`, but providing left-to-right reading for sanity.  
 * `continues_on(sch)` is not a sender. It is another sender adapter.  
