@@ -87,7 +87,7 @@ struct printing_receiver {
 };  
 ```  
 [https://godbolt.org/z/aWWPTEoqd](https://godbolt.org/z/aWWPTEoqd)  
-Writing `connect(ex::just("foo"), printing_receiver{}).start()` is a very round-about (and dicy) way to write `fmt::println("set_value{}", std::tuple(“foo”));`, but it’s illustrative: A receiver is a simple thing: it’s the end of these pipelines. As it turns out, they do more than that, some of which we’ll see below.
+Writing `connect(ex::just("foo"), printing_receiver{}).start()` is a very round-about (and dicy) way to write `fmt::println("set_value{}", std::tuple{"foo"});`, but it’s illustrative: A receiver is a simple thing: it’s the end of these pipelines. As it turns out, they do more than that, some of which we’ll see below.
 
 So what happens? Where does the result of `connect` come from? The `connect` customization–point object is customizable for any sender and receiver, but here it’s `just(x)` that provided it: `just(x)` is a sender – it doesn’t have a corresponding receiver type, but it does have an operation state that conceptually is  
 ```cpp
@@ -232,7 +232,7 @@ The above gives the basic intuition for what `schedule(sch) | then(f) | then(g)`
 There a bunch more questions I haven’t yet explored in depth, but could be their own articles:
 
 * What happens at the end of `when_all(schedule(sch) | then(f), schedule(sch) | then(g))`? A thread from `sch` must realize it’s the “last one out”. Then what?  
-  “Why all of these abstraction layers?” One inkling: By transforming a sender chain to a receiver chain at the point of connection to the final receiver, there are customization points to allow information to travel in both directions through the chan, so what started life as `just()` turns into something that knows what execution resource it is running on, if it needs to report cancelation, etc.  
+* “Why all of these abstraction layers?” One inkling: By transforming a sender chain to a receiver chain at the point of connection to the final receiver, there are customization points to allow information to travel in both directions through the chan, so what started life as `just()` turns into something that knows what execution resource it is running on, if it needs to report cancelation, etc.  
 * “What's this `let_value` thing for?” It lets you put off creating a sender until mid-execution, which is useful for various reasons.
 * “How does cancelation work?” I haven’t talked about the error or stopped channels, but an interesting aspect of P2300’s design, where then “sender onion” gets turned inside out into a “receiver onion” is that it lets the “receiver onion” look inside itself to ask if cancellation is even possible, removing potential overhead.
 * “What's an environment? Why would I query it?” For example, it lets you know if you need to worry about cancelation.
