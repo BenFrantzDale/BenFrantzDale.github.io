@@ -22,7 +22,7 @@ baseurl: ""
 
 author:
   name: "Ben FrantzDale"
-    bio: "Multidisciplinary engineer with deep expertise in C++ library design and 3D reconstruction. Previously at Formlabs."
+  bio: "Multidisciplinary engineer with deep expertise in C++ library design and 3D reconstruction. Previously at Formlabs."
   location: "Greater Boston"
   links:
     - label: "LinkedIn"
